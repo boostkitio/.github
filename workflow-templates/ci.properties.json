@@ -1,0 +1,6 @@
+{
+  "name": "Boostkit CI standard",
+  "description": "Lint, typecheck, test and build on every push to main and every pull request.",
+  "iconName": "octicon check-circle",
+  "categories": ["JavaScript", "TypeScript"]
+}

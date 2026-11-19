@@ -1,0 +1,23 @@
+# Boostkit CI standard: lint, typecheck, test and build on every push to main
+# and every pull request. The steps live in boostkitio/.github; see
+# _HOME/sops/ci-standard.md for inputs (skip, build-command, env) and known gaps.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**/*.md", "docs/**"]
+  pull_request:
+    paths-ignore: ["**/*.md", "docs/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: boostkitio/.github/.github/workflows/node-ci.yml@main

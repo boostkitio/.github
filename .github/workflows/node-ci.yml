@@ -1,0 +1,122 @@
+# Boostkit CI standard (Matt, 19 Nov 2026: "main + one standard + no emails to you").
+#
+# Every repo calls this from a small .github/workflows/ci.yml (see
+# workflow-templates/ci.yml). It installs from the lockfile and runs whichever of
+# lint, typecheck, test and build the repo's package.json has, using
+# scripts/ci.sh, which also runs the same way on a developer machine.
+#
+# Concurrency belongs in the caller, never here: the same group in both cancels itself.
+name: Node CI (Boostkit standard)
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: Override the Node version (default .nvmrc, then engines.node, then 24)
+        type: string
+        default: ""
+      skip:
+        description: Comma list of steps to leave out (lint,typecheck,test,build). Each needs a known-gap line in _HOME/sops/ci-standard.md and an issue.
+        type: string
+        default: ""
+      build-command:
+        description: Replaces "npm run build", for repos whose build script deploys (for example "npx next build")
+        type: string
+        default: ""
+      test-command:
+        description: Replaces "npm run test"
+        type: string
+        default: ""
+      env:
+        description: Dummy, non-secret build-time variables, one KEY=value per line. Never real secrets.
+        type: string
+        default: ""
+      working-directory:
+        type: string
+        default: "."
+      timeout-minutes:
+        type: number
+        default: 20
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      CI: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+      CI_SKIP: ${{ inputs.skip }}
+      CI_BUILD_COMMAND: ${{ inputs.build-command }}
+      CI_TEST_COMMAND: ${{ inputs.test-command }}
+      CI_NODE_VERSION: ${{ inputs.node-version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch the standard
+        uses: actions/checkout@v4
+        with:
+          repository: boostkitio/.github
+          ref: main
+          path: .ci-standard
+          persist-credentials: false
+
+      - name: Move the standard out of the workspace
+        working-directory: .
+        run: mv .ci-standard "$RUNNER_TEMP/ci-standard"
+
+      - name: Detect
+        id: detect
+        run: |
+          bash "$RUNNER_TEMP/ci-standard/scripts/ci.sh" detect | tee -a "$GITHUB_OUTPUT"
+          cache=""; [ -f package-lock.json ] && cache=npm
+          echo "cache=$cache" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.detect.outputs.node }}
+          cache: ${{ steps.detect.outputs.cache }}
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+
+      - name: Dummy build-time variables
+        if: inputs.env != ''
+        env:
+          CI_ENV_BLOCK: ${{ inputs.env }}
+        run: |
+          printf '%s\n' "$CI_ENV_BLOCK" | sed -e 's/\r$//' -e '/^[[:space:]]*$/d' -e '/^[[:space:]]*#/d' >> "$GITHUB_ENV"
+
+      - name: Install
+        id: install
+        run: bash "$RUNNER_TEMP/ci-standard/scripts/ci.sh" install
+
+      - name: Lint
+        if: contains(format(' {0} ', steps.detect.outputs.steps), ' lint ')
+        run: bash "$RUNNER_TEMP/ci-standard/scripts/ci.sh" run lint
+
+      - name: Typecheck
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && contains(format(' {0} ', steps.detect.outputs.steps), ' typecheck ') }}
+        run: bash "$RUNNER_TEMP/ci-standard/scripts/ci.sh" run typecheck
+
+      - name: Test
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && contains(format(' {0} ', steps.detect.outputs.steps), ' test ') }}
+        run: bash "$RUNNER_TEMP/ci-standard/scripts/ci.sh" run test
+
+      - name: Next.js build cache
+        if: steps.detect.outputs.next == 'true' && contains(format(' {0} ', steps.detect.outputs.steps), ' build ')
+        uses: actions/cache@v4
+        with:
+          path: ${{ inputs.working-directory }}/.next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles(format('{0}/package-lock.json', inputs.working-directory), format('{0}/pnpm-lock.yaml', inputs.working-directory)) }}-${{ github.sha }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles(format('{0}/package-lock.json', inputs.working-directory), format('{0}/pnpm-lock.yaml', inputs.working-directory)) }}-
+
+      - name: Build
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && contains(format(' {0} ', steps.detect.outputs.steps), ' build ') }}
+        run: bash "$RUNNER_TEMP/ci-standard/scripts/ci.sh" run build
