@@ -1,5 +1,7 @@
 # boostkitio/.github
 
+**Not in use (19 Nov 2026).** Matt chose a free local pre-push hook over per-push Actions to stay inside the organisation's Actions budget; see `_HOME/sops/ci-standard.md`. This workflow is kept for any repo that needs Actions checks on pull requests.
+
 The Boostkit CI standard (Matt, 19 Nov 2026): every repo runs lint, typecheck, test and build on every push to `main` and every pull request.
 
 - `.github/workflows/node-ci.yml`: the reusable workflow. Inputs: `node-version`, `skip`, `build-command`, `test-command`, `env` (dummy, non-secret build-time names only), `working-directory`, `timeout-minutes`.
